@@ -10,7 +10,7 @@ class player_sprite(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
         # Images
-        scale = 0.65
+        scale = 0.6
         stand1 = pygame.image.load(resources_path / 'player/stand1.png')
         stand1 = pygame.transform.scale_by(stand1, scale)
         walk1 = pygame.image.load(resources_path / 'player/walk1.png')
@@ -31,7 +31,7 @@ class player_sprite(pygame.sprite.Sprite):
         self.dash_count = 0
     
     def move(self):
-        move_speed = 8.5
+        move_speed = 8
         keys = pygame.key.get_pressed()
         # Bools
         any_wasd = keys[pygame.K_w] or keys[pygame.K_a] or keys[pygame.K_s] or keys[pygame.K_d]
@@ -58,20 +58,20 @@ class player_sprite(pygame.sprite.Sprite):
                 move_speed = move_speed
             
         # UP-LEFT-RIGHT-DOWN MOVEMENT
-        if keys[pygame.K_w] and (not r1.top_collision):
+        if keys[pygame.K_w] and (not active_room.top_collision):
             self.rect.y -= move_speed
-        if keys[pygame.K_s] and (not r1.bottom_collision):
+        if keys[pygame.K_s] and (not active_room.bottom_collision):
             self.rect.y += move_speed
-        if keys[pygame.K_a] and (not r1.left_collision):
-            self.rect.x -= move_speed
+        if keys[pygame.K_a] and (not active_room.left_collision):
+            self.rect.x = self.rect.x - move_speed
             # Orientation
             if self.lookn_right:
                 for frame in self.player_frames:
                     self.player_frames[self.player_frames.index(frame)] = pygame.transform.flip(frame, 1, 0)
                 self.lookn_right = False
                 self.lookn_left = True
-        if keys[pygame.K_d] and (not r1.right_collision):
-            self.rect.x += move_speed
+        if keys[pygame.K_d] and (not active_room.right_collision):
+            self.rect.x = self.rect.x + move_speed
             # Orientation
             if self.lookn_left:
                 for frame in self.player_frames:
@@ -79,12 +79,15 @@ class player_sprite(pygame.sprite.Sprite):
                 self.lookn_left = False
                 self.lookn_right = True
         
+        surf = font.render(f'{self.rect.center}', 0 , 'black')
+        screen.blit(surf,surf.get_rect())
+
         # Animation
         if any_wasd and (not opposites_wasd):
             self.animation() 
         else:
             self.image = self.player_frames[0]
-    
+
     def animation(self):
         player_fps = 0.13
         self.player_index = (self.player_index + player_fps) % (len(self.player_frames))
@@ -163,21 +166,39 @@ class hud_element(pygame.sprite.Sprite):
 
 class room():
 
-    def __init__(self, door_coords_list, bg_name):
+    def __init__(self, bg_name, door_coords_list, door_width=20, oob_degree=20):
         
         self.image = pygame.image.load(resources_path / f'bg/{bg_name}.png')
         self.rect = self.image.get_rect()
         self.door_coords_list = door_coords_list
-        self.door_width = 20
+        self.door_width = door_width
+        self.oob_degree = oob_degree
         self.top_collision = False
         self.bottom_collision = False
         self.right_collision = False
         self.left_collision = False
 
+        self.door_pairs_dic = {}
+        for coords in self.door_coords_list:
+            self.door_pairs_dic.update({coords:None})
+        
+        self.closed_doors_list = []
+
     
     def display_bg(self):
         screen.blit(self.image, self.rect)
     
+    def connect_doors(self, door1, room2, door2):
+        self.door_pairs_dic.update({door1:(room2, door2)})
+
+    def close_doors(self, door_list):
+        for door in door_list:
+            self.closed_doors_list.append(door)
+    
+    def open_doors(self, door_list):
+        for door in door_list:
+            self.closed_doors_list.remove(door)
+
     def enforce_walls(self):
         
         # Wall Collisons
@@ -199,7 +220,8 @@ class room():
 
         # Door Non-collision
         for door_pair in self.door_coords_list:
-
+            if door_pair in self.closed_doors_list:
+                continue
             if door_pair[0] != 0 and door_pair[0] != l:
                 if abs(player.rect.centerx - door_pair[0]) <= self.door_width and abs(player.rect.centery - door_pair[1]) < 100:
                     self.top_collision, self.bottom_collision = False, False
@@ -208,10 +230,34 @@ class room():
                 if abs(player.rect.centery - door_pair[1]) <= self.door_width and abs(player.rect.centerx - door_pair[0]) < 90:
                     self.right_collision, self.left_collision = False, False    
                     self.top_collision, self.bottom_collision = True, True
-        
+        # Door Transport
+        oob_bool = (player.rect.centerx - l > self.oob_degree) or (-player.rect.centerx > self.oob_degree) or (-player.rect.centery > self.oob_degree) or (player.rect.centery - w > self.oob_degree) 
+        if oob_bool:
+            for door_pair in self.door_coords_list:
+                if dis(player.rect.center, door_pair) < 50:
+                    global active_room
+                    active_room = self.door_pairs_dic[door_pair][0]
+                    player.rect.center = self.door_pairs_dic[door_pair][1]
+    
     def update(self):
         self.display_bg()
         self.enforce_walls()
+
+class npc(pygame.sprite.Sprite):
+
+    def __init__(self, npc_name):
+        super().__init__()
+
+        self.image = pygame.image.load(resources_path / f'npc/{npc_name}/{npc_name}_stand1.png')
+        self.image = pygame.transform.scale(self.image, (240,240))
+        self.rect = self.image.get_rect()
+        self.rect.center = (500,500)
+
+    def animate(self):
+        pass
+
+    def update(self):
+        self.animate()
 
 # Functions
 def player_sprite_collision():
@@ -220,6 +266,10 @@ def player_sprite_collision():
 
 def dis(a,b):
     return sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+
+def connect_doors_2way(r1,r2,p1,p2):
+    r1.connect_doors(p1, r2, p2)
+    r2.connect_doors(p2, r1, p1)
 
 # Init
 pygame.init()
@@ -242,9 +292,17 @@ dash_bar = hud_element(type='dash_bar', x=140, y=70)
 hud_group = pygame.sprite.Group()
 hud_group.add(dash_bar)
 
+ego1 = npc('ego')
+ego_group = pygame.sprite.Group()
+ego_group.add(ego1)
+
 # BG
-r1 = room([(661,0), (661,w), (0,300), (l,300)], 'room1')
-r2 = room([(661,0), (661,w), (0,300), (l,300)], 'room2')
+r1 = room('room1', [(661,0),(l,300)])
+r2 = room('room2', [(0,300), (661,w)])
+rooms = [r1,r2]
+connect_doors_2way(r1,r2,(l,300),(0,300))
+connect_doors_2way(r1,r2,(661,0),(661,w))
+active_room = r1
 
 # Text
 font = pygame.font.Font(None, 100)
@@ -260,17 +318,17 @@ while running:
 
     if game_on:
         # BG
-        screen.blit(r1.image, r1.rect)
-        r1.update()
-        for door_pair in r1.door_coords_list:
+        screen.blit(active_room.image, active_room.rect)
+        active_room.update()
+        for door_pair in active_room.door_coords_list:
             pygame.draw.circle(screen, "#FF0000", door_pair, 10)   
         
         # Draw & Update Sprites
         player_group.update()
         player_group.draw(screen)
 
-        # ball_group.draw(screen)
-        # ball_group.update()
+        ego_group.update()
+        ego_group.draw(screen)
 
         hud_group.update()
         hud_group.draw(screen)
