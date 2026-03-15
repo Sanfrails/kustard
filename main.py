@@ -1,6 +1,6 @@
 import pygame
 import time
-from math import sqrt
+from math import *
 import pathlib
 resources_path = pathlib.Path().cwd() / 'resources'
 
@@ -66,21 +66,21 @@ class player_sprite(pygame.sprite.Sprite):
             self.rect.x = self.rect.x - move_speed
             # Orientation
             if self.lookn_right:
-                for frame in self.player_frames:
-                    self.player_frames[self.player_frames.index(frame)] = pygame.transform.flip(frame, 1, 0)
+                for i in range(len(self.player_frames)):
+                    self.player_frames[i] = pygame.transform.flip(self.player_frames[i], 1, 0)
                 self.lookn_right = False
                 self.lookn_left = True
         if keys[pygame.K_d] and (not active_room.right_collision):
             self.rect.x = self.rect.x + move_speed
             # Orientation
             if self.lookn_left:
-                for frame in self.player_frames:
-                    self.player_frames[self.player_frames.index(frame)] = pygame.transform.flip(frame, 1, 0)
+                for i in range(len(self.player_frames)):
+                    self.player_frames[i] = pygame.transform.flip(self.player_frames[i], 1, 0)
                 self.lookn_left = False
                 self.lookn_right = True
         
-        surf = font.render(f'{self.rect.center}', 0 , 'black')
-        screen.blit(surf,surf.get_rect())
+        # surf = font.render(f'{self.rect.center}', 0 , 'black')
+        # screen.blit(surf,surf.get_rect())
 
         # Animation
         if any_wasd and (not opposites_wasd):
@@ -129,16 +129,16 @@ class ball_projectile(pygame.sprite.Sprite):
 
 class hud_element(pygame.sprite.Sprite):
     
-    def __init__(self, type, x, y):
+    def __init__(self, type, x, y, replenish_speed):
         super().__init__()
-        if type == 'dash_bar':
-            dash_bar1 = pygame.image.load(resources_path / 'hud/dash_bar1.png')
-            dash_bar2 = pygame.image.load(resources_path / 'hud/dash_bar2.png')
-            dash_bar3 = pygame.image.load(resources_path / 'hud/dash_bar3.png')
-            dash_bar4 = pygame.image.load(resources_path / 'hud/dash_bar4.png')
-            self.hud_element_frames = [dash_bar1, dash_bar2, dash_bar3, dash_bar4]
 
+        self.hud_element_frames = []
         self.hud_index = 0
+        for image_path in sorted(pathlib.Path(resources_path / f'hud/{type}').iterdir()):
+            image = pygame.image.load(image_path)
+            self.hud_element_frames.append(image)
+
+        self.replenish_speed = replenish_speed
         self.image = self.hud_element_frames[self.hud_index]
         self.rect = self.image.get_rect()
         self.rect.center = (x,y)
@@ -156,7 +156,7 @@ class hud_element(pygame.sprite.Sprite):
         if self.hud_index == 0:
             self.begin_replenish = False
 
-        if (time.perf_counter() - self.previous_replenish > 10) and self.begin_replenish:
+        if (time.perf_counter() - self.previous_replenish > self.replenish_speed) and self.begin_replenish:
             self.hud_index -= 1
             self.image = self.hud_element_frames[self.hud_index]
             self.previous_replenish = time.perf_counter()
@@ -166,13 +166,15 @@ class hud_element(pygame.sprite.Sprite):
 
 class room():
 
-    def __init__(self, bg_name, door_coords_list, door_width=20, oob_degree=20):
+    def __init__(self, bg_name, wall_width=8, door_coords_list=[], door_width=20, oob_degree=20, sprite_groups=[]):
         
         self.image = pygame.image.load(resources_path / f'bg/{bg_name}.png')
         self.rect = self.image.get_rect()
+        self.wall_width = wall_width
         self.door_coords_list = door_coords_list
         self.door_width = door_width
         self.oob_degree = oob_degree
+        self.sprite_groups = sprite_groups
         self.top_collision = False
         self.bottom_collision = False
         self.right_collision = False
@@ -184,7 +186,6 @@ class room():
         
         self.closed_doors_list = []
 
-    
     def display_bg(self):
         screen.blit(self.image, self.rect)
     
@@ -203,19 +204,19 @@ class room():
         
         # Wall Collisons
         self.top_collision = False
-        if player.rect.top - self.rect.top < 10:
+        if player.rect.top - self.rect.top < self.wall_width:
             self.top_collision = True   
 
         self.bottom_collision = False
-        if self.rect.bottom - player.rect.bottom < 10:
+        if self.rect.bottom - player.rect.bottom < self.wall_width:
             self.bottom_collision = True  
 
         self.right_collision = False
-        if self.rect.right - player.rect.right < 6:
-            self.right_collision = True   
+        if self.rect.right - player.rect.right < -self.wall_width:
+            self.right_collision = True
 
         self.left_collision = False
-        if player.rect.left - self.rect.left < 0:
+        if player.rect.left - self.rect.left < -self.wall_width:
             self.left_collision = True
 
         # Door Non-collision
@@ -238,25 +239,80 @@ class room():
                     global active_room
                     active_room = self.door_pairs_dic[door_pair][0]
                     player.rect.center = self.door_pairs_dic[door_pair][1]
-    
+
+    def activate_sprite_groups(self):
+        if active_room == self:
+            for group in self.sprite_groups:
+                group.update()
+                group.draw(screen)
+        
     def update(self):
         self.display_bg()
         self.enforce_walls()
+        self.activate_sprite_groups()
 
 class npc(pygame.sprite.Sprite):
 
-    def __init__(self, npc_name):
+    def __init__(self, npc_name, move_speed):
         super().__init__()
 
-        self.image = pygame.image.load(resources_path / f'npc/{npc_name}/{npc_name}_stand1.png')
+        # Setup
+        self.npc_frames = []
+        self.npc_frame_index = 0
+        for image_path in pathlib.Path(resources_path / f'npc/{npc_name}').iterdir():
+            image = pygame.image.load(image_path)
+            image = pygame.transform.scale2x(image)
+            self.npc_frames.append(image)
+        self.move_speed = move_speed
+        # Image and Rect 
+        self.image = self.npc_frames[self.npc_frame_index]
         self.image = pygame.transform.scale(self.image, (240,240))
         self.rect = self.image.get_rect()
         self.rect.center = (500,500)
+        # Orientation
+        self.lookn_right = False
+        self.lookn_left = True
 
+        self.aware_of_player = False
+
+    def awareness_of_player(self):
+        if (not self.aware_of_player) and player.rect.center > (0,0) and player.rect.center < (l,w):
+            pass
+
+    def move(self):
+        self.move_speed = 1
+        # Find Player's Direction
+        x_to_player = player.rect.centerx - self.rect.centerx
+        self.xsign = (x_to_player > 0) - (x_to_player < 0)
+        y_to_player = player.rect.centery - self.rect.centery
+        self.ysign = (y_to_player > 0) - (y_to_player < 0)
+        # Diagonal Walking
+        if self.xsign and self.ysign:
+            self.move_speed = self.move_speed*sqrt(2)
+        # Move
+        self.rect.centerx += self.xsign*self.move_speed
+        self.rect.centery += self.ysign*self.move_speed
+        
     def animate(self):
-        pass
+        # Walking Animation
+        npc_fps = 0.11
+        self.npc_frame_index = (self.npc_frame_index + npc_fps) % (len(self.npc_frames))
+        self.image = self.npc_frames[int(self.npc_frame_index)]
+        # Orientation
+        if self.xsign == 1 and self.lookn_left:
+            for i in range(len(self.npc_frames)):
+                    self.npc_frames[i] = pygame.transform.flip(self.npc_frames[i], 1, 0)
+                    self.lookn_left = False
+                    self.lookn_right = True
+        if self.xsign == -1 and self.lookn_right:
+            for i in range(len(self.npc_frames)):
+                    self.npc_frames[i] = pygame.transform.flip(self.npc_frames[i], 1, 0)
+                    self.lookn_left = True
+                    self.lookn_right = False
 
     def update(self):
+        self.awareness_of_player()
+        self.move()
         self.animate()
 
 # Functions
@@ -271,6 +327,9 @@ def connect_doors_2way(r1,r2,p1,p2):
     r1.connect_doors(p1, r2, p2)
     r2.connect_doors(p2, r1, p1)
 
+# User_Events
+CHANGED_ROOMS = pygame.USEREVENT + 1
+
 # Init
 pygame.init()
 l, w = 1280, 720
@@ -284,21 +343,21 @@ player = player_sprite()
 player_group = pygame.sprite.GroupSingle()
 player_group.add(player)
 
+dash_bar = hud_element(type='dash_bar', x=140, y=70, replenish_speed=10)
+hud_group = pygame.sprite.Group()
+hud_group.add(dash_bar)
+
 ball1 = ball_projectile(x=0, y=0, radius=20, speed=12)
 ball_group = pygame.sprite.Group()
 # ball_group.add(ball1)
 
-dash_bar = hud_element(type='dash_bar', x=140, y=70)
-hud_group = pygame.sprite.Group()
-hud_group.add(dash_bar)
-
-ego1 = npc('ego')
+ego1 = npc('ego', 1)
 ego_group = pygame.sprite.Group()
-ego_group.add(ego1)
+# ego_group.add(ego1)
 
 # BG
-r1 = room('room1', [(661,0),(l,300)])
-r2 = room('room2', [(0,300), (661,w)])
+r1 = room('room1', door_coords_list=[(661,0),(l,300)], sprite_groups=[ego_group])
+r2 = room('room2', door_coords_list=[(0,300), (661,w)])
 rooms = [r1,r2]
 connect_doors_2way(r1,r2,(l,300),(0,300))
 connect_doors_2way(r1,r2,(661,0),(661,w))
@@ -326,9 +385,6 @@ while running:
         # Draw & Update Sprites
         player_group.update()
         player_group.draw(screen)
-
-        ego_group.update()
-        ego_group.draw(screen)
 
         hud_group.update()
         hud_group.draw(screen)
