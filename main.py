@@ -28,7 +28,7 @@ class player_sprite(pygame.sprite.Sprite):
         # Movement Vars
         self.accelerate = False
         self.last_dashed = 0
-        self.dash_max = 4
+        self.dash_max_speed = 4
         self.dash_interval = 0.3
         # Health
         # self.health_pts = 4
@@ -52,8 +52,8 @@ class player_sprite(pygame.sprite.Sprite):
             dash_bar.consume()
         if self.accelerate:
             t = (time.perf_counter() - self.last_dashed)
-            a = 4*(1-self.dash_max)/(self.dash_interval**2)
-            b = 4*(self.dash_max-1)/(self.dash_interval)
+            a = 4*(1-self.dash_max_speed)/(self.dash_interval**2)
+            b = 4*(self.dash_max_speed-1)/(self.dash_interval)
             acc_factor = a*(t**2) + b*(t) + 1
             if t < self.dash_interval:
                 move_speed = move_speed*acc_factor
@@ -62,6 +62,11 @@ class player_sprite(pygame.sprite.Sprite):
                 move_speed = move_speed
             
         # UP-LEFT-RIGHT-DOWN MOVEMENT
+        predicted_w = self.rect.top - move_speed
+        predicted_s = self.rect.bottom + move_speed
+        predicted_a = self.rect.left - move_speed
+        predicted_d = self.rect.right + move_speed
+        active_room.enforce_walls(predicted_w, predicted_s, predicted_a, predicted_d)
         if keys[pygame.K_w] and (not active_room.top_collision):
             self.rect.y -= move_speed
         if keys[pygame.K_s] and (not active_room.bottom_collision):
@@ -83,7 +88,7 @@ class player_sprite(pygame.sprite.Sprite):
                 self.lookn_left = False
                 self.lookn_right = True
         
-        # surf = font.render(f'{self.rect.center}', 0 , 'black')
+        # surf = font.render(f'{self.rect.y}', 0 , 'black')
         # screen.blit(surf,surf.get_rect())
 
         # Animation
@@ -139,7 +144,7 @@ class hud_element(pygame.sprite.Sprite):
 
 class room():
 
-    def __init__(self, bg_name, wall_width=8, door_coords_list=[], door_width=20, oob_degree=20, sprite_groups=[]):
+    def __init__(self, bg_name, wall_width=0, door_coords_list=[], door_width=20, oob_degree=20, sprite_groups=[]):
 
         # Setup 
         self.image = pygame.image.load(resources_path / f'bg/{bg_name}.png')
@@ -174,24 +179,24 @@ class room():
         for door in door_list:
             self.closed_doors_list.remove(door)
 
-    def enforce_walls(self):
+    def enforce_walls(self, predicted_w, predicted_s, predicted_a, predicted_d):
         
         # Wall Collisons
         self.top_collision = False
-        if player.rect.top - self.rect.top < self.wall_width:
+        if predicted_w < (0) + self.wall_width:
             self.top_collision = True   
 
         self.bottom_collision = False
-        if self.rect.bottom - player.rect.bottom < self.wall_width:
+        if predicted_s > (w) - self.wall_width:
             self.bottom_collision = True  
 
-        self.right_collision = False
-        if self.rect.right - player.rect.right < -self.wall_width:
-            self.right_collision = True
-
         self.left_collision = False
-        if player.rect.left - self.rect.left < -self.wall_width:
+        if predicted_a < (-14) + self.wall_width:
             self.left_collision = True
+            
+        self.right_collision = False
+        if predicted_d > (l + 14) - self.wall_width:
+            self.right_collision = True
 
         # Door Non-collision
         for door_pair in self.door_coords_list:
@@ -232,7 +237,7 @@ class room():
         
     def update(self):
         self.display_bg()
-        self.enforce_walls()
+        # self.enforce_walls()
         self.door_access()
         self.activate_sprite_groups()
 
@@ -378,7 +383,7 @@ hud_group.add([dash_bar, health_bar])
 
 ball = ball_projectile(x=0, y=0, radius=20, speed=12)
 ball_group = pygame.sprite.Group()
-ball_group.add(ball)
+# ball_group.add(ball)
 
 ego = hostile_npc('ego', move_speed=1)
 ego_group = pygame.sprite.Group()
