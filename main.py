@@ -32,6 +32,7 @@ class player_sprite(pygame.sprite.Sprite):
         self.dash_interval = 0.3
         # Health
         # self.health_pts = 4
+        self.report = []
     
     def move(self):
         move_speed = 8
@@ -57,9 +58,23 @@ class player_sprite(pygame.sprite.Sprite):
             acc_factor = a*(t**2) + b*(t) + 1
             if t < self.dash_interval:
                 move_speed = move_speed*acc_factor
+                # Check for predicted collisons
+                predicted_w = self.rect.top - move_speed
+                predicted_s = self.rect.bottom + move_speed
+                predicted_a = self.rect.left - move_speed
+                predicted_d = self.rect.right + move_speed
+                active_room.enforce_walls(predicted_w, predicted_s, predicted_a, predicted_d)
+                if not active_room.door_in_use:
+                    if active_room.top_collision:
+                        self.rect.top = active_room.max_top
+                    if active_room.bottom_collision:
+                        self.rect.bottom = active_room.max_bottom
+                    if active_room.left_collision:
+                        self.rect.left = active_room.max_left
+                    if active_room.right_collision:
+                        self.rect.right = active_room.max_right
             else:    
                 self.accelerate = False
-                move_speed = move_speed
             
         # UP-LEFT-RIGHT-DOWN MOVEMENT
         predicted_w = self.rect.top - move_speed
@@ -144,7 +159,7 @@ class hud_element(pygame.sprite.Sprite):
 
 class room():
 
-    def __init__(self, bg_name, wall_width=0, door_coords_list=[], door_width=20, oob_degree=20, sprite_groups=[]):
+    def __init__(self, bg_name, wall_width=0, door_coords_list=[], door_width=100, oob_degree=20, sprite_groups=[]):
 
         # Setup 
         self.image = pygame.image.load(resources_path / f'bg/{bg_name}.png')
@@ -164,6 +179,7 @@ class room():
         for coords in self.door_coords_list:
             self.door_pairs_dic.update({coords:None})
         self.closed_doors_list = []
+        self.door_in_use = False
 
     def display_bg(self):
         screen.blit(self.image, self.rect)
@@ -182,41 +198,51 @@ class room():
     def enforce_walls(self, predicted_w, predicted_s, predicted_a, predicted_d):
         
         # Wall Collisons
+        self.max_top = (0) + self.wall_width
+        self.max_bottom = (w) - self.wall_width
+        self.max_left = (-14) + self.wall_width
+        self.max_right = (l+14) + self.wall_width
+        
         self.top_collision = False
-        if predicted_w < (0) + self.wall_width:
-            self.top_collision = True   
+        if predicted_w < (0) + self.max_top:
+            self.top_collision = True
 
         self.bottom_collision = False
-        if predicted_s > (w) - self.wall_width:
+        if predicted_s > self.max_bottom:
             self.bottom_collision = True  
 
         self.left_collision = False
-        if predicted_a < (-14) + self.wall_width:
+        if predicted_a < self.max_left:
             self.left_collision = True
             
         self.right_collision = False
-        if predicted_d > (l + 14) - self.wall_width:
+        if predicted_d > self.max_right:
             self.right_collision = True
 
         # Door Non-collision
+        self.door_in_use = False
         for door_pair in self.door_coords_list:
+            # Skip closed doors
             if door_pair in self.closed_doors_list:
                 continue
+            # Check if player is within door's radius
             if door_pair[0] != 0 and door_pair[0] != l:
-                if abs(player.rect.centerx - door_pair[0]) <= self.door_width and abs(player.rect.centery - door_pair[1]) < 100:
+                if dis(player.rect.center, door_pair) < self.door_width:
                     self.top_collision, self.bottom_collision = False, False
                     self.right_collision, self.left_collision = True, True
-            if door_pair[1] != 0 and door_pair[1] != w:
-                if abs(player.rect.centery - door_pair[1]) <= self.door_width and abs(player.rect.centerx - door_pair[0]) < 90:
+                    self.door_in_use = True
+            elif door_pair[1] != 0 and door_pair[1] != w:
+                if dis(player.rect.center, door_pair) < self.door_width:
                     self.right_collision, self.left_collision = False, False    
                     self.top_collision, self.bottom_collision = True, True
+                    self.door_in_use = True
         
-    def door_access(self): 
+    def door_access(self):
         # Door Transfer
         oob_bool = (player.rect.centerx - l > self.oob_degree) or (-player.rect.centerx > self.oob_degree) or (-player.rect.centery > self.oob_degree) or (player.rect.centery - w > self.oob_degree) 
         if oob_bool:
             for door_pair in self.door_coords_list:
-                if dis(player.rect.center, door_pair) < 50:
+                if dis(player.rect.center, door_pair) < 100:
                     global active_room
                     active_room = self.door_pairs_dic[door_pair][0]
                     player.rect.center = self.door_pairs_dic[door_pair][1]
@@ -412,7 +438,7 @@ while running:
         screen.blit(active_room.image, active_room.rect)
         active_room.update()
         for door_pair in active_room.door_coords_list:
-            pygame.draw.circle(screen, "#FF0000", door_pair, 10)   
+            pygame.draw.circle(screen, "#FF0000", door_pair, 80, 5)   
         
         # Draw & Update Sprites
         player_group.update()
